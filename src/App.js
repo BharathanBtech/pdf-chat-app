@@ -151,7 +151,7 @@ function App() {
       content: `Upload complete! ${successCount} out of ${pdfFiles.length} files uploaded successfully. You can now ask questions about the uploaded documents.`,
       timestamp: new Date().toLocaleTimeString()
     }]);
-  }, [uploadPDFToAPI]);
+  }, []);
 
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
     onDrop,
@@ -176,8 +176,8 @@ function App() {
     setIsLoading(true);
 
     try {
-      // Simulate AI response based on uploaded PDFs
-      const response = await simulateAIResponse(inputMessage, pdfFiles);
+      // Call Activepieces webhook for AI response
+      const response = await callActivepiecesWebhook(inputMessage);
       
       const aiMessage = {
         id: Date.now() + 1,
@@ -200,21 +200,50 @@ function App() {
     }
   };
 
-  const simulateAIResponse = async (question, uploadedFiles) => {
-    // Simulate API delay
-    await new Promise(resolve => setTimeout(resolve, 1000));
-    
-    const lowerQuestion = question.toLowerCase();
-    const fileNames = uploadedFiles.map(f => f.name).join(', ');
-    
-    if (lowerQuestion.includes('what') && lowerQuestion.includes('document')) {
-      return `I can see you've uploaded ${uploadedFiles.length} document(s): ${fileNames}. These documents have been processed and are now available for analysis.`;
-    } else if (lowerQuestion.includes('upload') || lowerQuestion.includes('file')) {
-      return `You have successfully uploaded ${uploadedFiles.length} PDF file(s) to the vector database. The files are now indexed and ready for querying.`;
-    } else if (lowerQuestion.includes('summary') || lowerQuestion.includes('overview')) {
-      return `Based on the uploaded documents (${fileNames}), I can provide insights and answer questions about their content. What specific information would you like to know?`;
-    } else {
-      return `I can help you analyze the content of your uploaded documents: ${fileNames}. Please ask specific questions about the document content, and I'll provide detailed answers based on the vector database.`;
+  const callActivepiecesWebhook = async (question) => {
+    try {
+      const response = await axios.post('https://pds-workflow.tekclansolutions.com/api/v1/webhooks/RqUaUz14jOMRqQiLdJdqq/sync', {
+        input: question
+      }, {
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        timeout: 60000 // 1 minute timeout for AI responses
+      });
+
+      if (response.status === 200) {
+        // Extract the answer from the response
+        const responseData = response.data;
+        
+        // Handle different response formats
+        if (typeof responseData === 'string') {
+          return responseData;
+        } else if (responseData && typeof responseData === 'object') {
+          // If response has an 'answer' key, extract it
+          if (responseData.answer) {
+            return responseData.answer;
+          }
+          // If response has a 'response' key, extract it
+          else if (responseData.response) {
+            return responseData.response;
+          }
+          // If response has a 'message' key, extract it
+          else if (responseData.message) {
+            return responseData.message;
+          }
+          // If none of the above, stringify the object
+          else {
+            return JSON.stringify(responseData);
+          }
+        } else {
+          return 'I received your question but got an empty response. Please try again.';
+        }
+      } else {
+        throw new Error(`Webhook returned status: ${response.status}`);
+      }
+    } catch (error) {
+      console.error('Error calling Activepieces webhook:', error);
+      throw new Error(`Failed to get AI response: ${error.response?.data?.message || error.message}`);
     }
   };
 
